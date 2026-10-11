@@ -1,0 +1,19 @@
+{
+  "name": "chess-space-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "vendor": "node scripts/vendor.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.2.8",
+    "@fontsource-variable/manrope": "^5.2.8",
+    "chess.js": "1.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

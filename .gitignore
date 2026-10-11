@@ -1,0 +1,10 @@
+node_modules/
+.sites-state/
+site.tar.gz
+test-results/
+playwright-report/
+*.log
+.sites-checkout/
+.sites-runtime/
+.sites-checkout-*/
+artifacts/
