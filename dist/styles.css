@@ -36,6 +36,17 @@ dialog { border:1px solid var(--line); border-radius:14px; padding:27px; width:m
 .metric-side .player-token { background:var(--white-overlay); border:0; border-radius:3px; }
 .black-metric .metric-side .player-token { background:var(--black-overlay); }
 .game-panel .moves-section { border-bottom:0; }
+.exchange-section { position:relative; }
+.exchange-inspector { margin-top:12px; }
+.exchange-empty { color:var(--muted); font-size:12px; line-height:1.5; margin:0; }
+.inspected-square { display:flex; gap:9px; align-items:center; font-size:12px; }.inspected-square strong { font:750 17px Manrope,sans-serif; }.inspected-square>span { color:var(--muted); }
+.square-control-counts { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:11px; }.square-control-counts>span { display:flex; align-items:center; gap:6px; font-size:12px; }.square-control-counts strong { margin-left:auto; color:var(--teal); font-size:17px; }.square-control-counts>span:last-child strong { color:var(--coral); }
+.square-control-edge { display:flex; justify-content:space-between; gap:8px; align-items:center; font-size:11px; margin-top:9px; }.square-control-edge>span { color:var(--muted); }.white-edge { color:var(--teal); }.black-edge { color:var(--coral); }
+.exchange-summary { border-top:1px solid var(--line); margin-top:11px; padding-top:10px; }.exchange-summary strong { display:block; font-size:14px; }.exchange-summary small { display:block; color:var(--muted); font-size:10px; line-height:1.5; margin-top:4px; }
+#exchange-detail-button { margin-top:10px; }.square.pinned-square { outline:2px dashed var(--purple); outline-offset:-4px!important; z-index:1; }.square.pinned-square:focus-visible { outline:3px solid var(--purple); }
+.exchange-summary-label { display:block; font-size:10px; color:var(--muted); margin-bottom:4px; }
+.attacker-lists { display:grid; grid-template-columns:1fr 1fr; gap:18px; }.attacker-list h3 { display:flex; align-items:center; gap:7px; margin:0 0 9px; font-size:13px; }.attacker-list h3>span { margin-left:auto; }.white-attackers h3>span { color:var(--teal); }.black-attackers h3>span { color:var(--coral); }.attacker-piece { display:flex; align-items:center; gap:7px; margin-bottom:5px; font-size:12px; }.attacker-piece .piece { width:26px; height:26px; filter:none; }.attacker-list p { color:var(--muted); font-size:12px; }
+.exchange-detail-result { border-top:1px solid var(--line); margin-top:17px; padding-top:17px; }.exchange-detail-result>strong { font-size:17px; }.exchange-detail-result p { margin:5px 0 16px; color:var(--muted); font-size:12px; }#exchange-details h3 { font-size:13px; }.capture-line { padding-left:22px; }.capture-line li { padding:4px 0; font-size:12px; }.capture-line span { display:block; margin-top:3px; color:var(--muted); font-size:11px; }
 @media(max-width:760px) { .header-note { display:none; } }
 @media(min-width:1100px) {
   .site-header { height:60px; padding:0 max(24px,calc((100vw - 1600px)/2)); }
@@ -52,7 +63,8 @@ dialog { border:1px solid var(--line); border-radius:14px; padding:27px; width:m
   .control-metric strong { font-size:32px; }.meter { margin-top:9px; }
   .space-breakdown { padding:13px 0; }.center-comparison { padding-top:12px; }
   .piece-inspector { gap:10px; min-height:54px; margin:12px 0 10px; }
-  .square-inspector { height:48px; overflow-y:auto; }
+  .game-panel>.pieces-section,.game-panel>.exchange-section { flex-shrink:0; }
+  .game-panel>.exchange-section { height:238px; }
   .game-panel .moves-section { flex:1; display:flex; flex-direction:column; min-height:0; }
   .game-panel .move-history { flex:1; min-height:0; max-height:none; overflow-y:auto; overscroll-behavior:contain; }
   .position-tools { border-top:1px solid var(--line); flex-shrink:0; padding:9px 7px; }
@@ -71,7 +83,10 @@ dialog { border:1px solid var(--line); border-radius:14px; padding:27px; width:m
   .segmented { margin-top:9px; }.segmented button { padding:6px 0; }
   .toggle-row { margin-top:10px; }.palette-label { margin-top:10px; margin-bottom:5px; }.palette-picker select { padding-top:7px; padding-bottom:7px; }.palette-key { display:none; }
   .piece-inspector { margin:8px 0; min-height:44px; }.inspector-icon { width:40px; height:44px; }.inspector-icon .piece { width:37px; height:37px; }
-  .piece-inspector p { line-height:1.4; margin-top:3px; }.square-inspector { padding-top:8px; min-height:34px; height:34px; line-height:1.4; }
+  .piece-inspector p { line-height:1.4; margin-top:3px; }
+  .game-panel .pieces-section { padding-top:6px; padding-bottom:6px; }.game-panel .piece-inventory { margin-top:8px; }.game-panel .inventory-row { min-height:20px; font-size:11px; }.game-panel .inventory-row .piece { width:20px; height:20px; }
+  .game-panel>.exchange-section { height:216px; }.exchange-inspector { margin-top:9px; }.exchange-summary { margin-top:9px; padding-top:8px; }
+  .exchange-summary strong { font-size:13px; }#exchange-detail-button { margin-top:8px; }
   .game-panel { height:calc(100dvh - 166px); }.board-section { width:min(100%,calc(100dvh - 342px)); }.footer-note { margin-top:10px; }
   .board-legend { gap:10px; font-size:10px; }
 }
@@ -79,6 +94,7 @@ dialog { border:1px solid var(--line); border-radius:14px; padding:27px; width:m
   main { padding:24px 22px; }.workspace { grid-template-columns:minmax(0,1fr) 300px; gap:24px; }.analysis-panel section { padding:18px; }
   .site-header { height:66px; padding:0 24px; }.header-note { display:none; }
   .game-panel { grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; }.game-panel .pieces-section { border-right:1px solid var(--line); }
+  .game-panel .exchange-section { grid-column:2; grid-row:1; }.game-panel .moves-section { grid-column:1 / -1; border-top:1px solid var(--line); }
   .game-panel .position-tools { grid-column:1 / -1; }.game-panel .move-history { max-height:205px; }
   .board-toolbar { flex-wrap:wrap; }#position-label { order:5; width:100%; text-align:center; margin:0; }.board-legend { gap:12px; font-size:11px; }
 }

@@ -24,6 +24,10 @@ Click or tap a piece, then a legal destination. Desktop dragging and keyboard na
 
 Choose Blue / amber, Teal / rose, or Violet / green under Control colors. The board, legend, statistics, and piece reach use the same palette. Striped squares indicate control by both sides. Desktop screens use three columns with a board sized to the viewport height and a separately scrolling move history. Smaller screens stack the panels.
 
+The Exchange inspector is independent of piece selection. Hover, focus, or tap a square to compare each side's controlling pieces, then pin it to keep the square visible. Show details lists the attackers and a legal capture line. The control edge counts attackers; the exchange estimate measures material in pawn units with pawn 1, knight/bishop 3, rook 5, queen 9.
+
+Exchange analysis evaluates the best initial capture by the actual side to move, followed by legal recaptures on the same square. Either side may stop recapturing when a legal move elsewhere is available. The calculation accounts for pins, king safety, revealed attackers, promotion, and en passant. It does not evaluate moves or tactics elsewhere, so it is a local material estimate rather than a position score. Friendly occupied squares and empty squares without en passant do not get a capture estimate. Analysis runs in a bounded background worker and reports incomplete searches without a partial score.
+
 The casual board ends draws automatically on threefold repetition or the fifty-move threshold. It does not provide tournament draw-claim, clock, resignation, or online multiplayer workflows.
 
 ## Verification

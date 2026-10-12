@@ -1,6 +1,7 @@
 import { Chess } from './vendor/chess.js';
 import { analyze, pieceControl, FILES, SQUARES, NAMES } from './control.js';
 import { pieceSvg } from './pieces.js';
+import { analyzeExchange, PIECE_VALUES } from './exchange.js';
 
 const $ = id => document.getElementById(id);
 const initialFen = new Chess().fen();
@@ -9,6 +10,8 @@ let game = new Chess(), startFen = initialFen, timeline = [], cursor = 0;
 let flipped = false, overlay = 'both', intensity = false, selected = null, hovered = null, palette = 'blue-amber';
 const palettes = ['blue-amber', 'teal-rose', 'violet-green'];
 let analysis, pendingPromotion = null, dragFrom = null, toastTimeout;
+let pinnedSquare = null, exchangeKey = null, exchangeResult = null, exchangeTimer, inspectTimer, exchangeWorker, exchangeBusy = false, exchangePending = null, exchangeActive = null;
+const exchangeCache = new Map();
 const colorName = color => color === 'w' ? 'White' : 'Black';
 const titleCase = word => word[0].toUpperCase() + word.slice(1);
 
@@ -62,6 +65,7 @@ function renderBoard() {
     if ((FILES.indexOf(square[0]) + +square[1]) % 2 === 1) classes.push('dark');
     if (showW && showB) classes.push('control-shared'); else if (showW) classes.push('control-w'); else if (showB) classes.push('control-b');
     if (selected === square) classes.push('selected');
+    if (pinnedSquare === square) classes.push('pinned-square');
     if (reach.has(square)) classes.push('reach');
     if (legal.has(square)) classes.push('legal');
     if (p) classes.push('occupied');
@@ -113,9 +117,83 @@ function renderInspector() {
   renderSquareInspector();
 }
 function renderSquareInspector() {
-  if (!hovered) { $('square-inspector').textContent = 'Hover a square to see which pieces control it.'; return; }
-  const describe = color => (analysis.control[color].get(hovered)||[]).map(s=>titleCase(NAMES[game.get(s).type])+' '+s).join(', ') || 'none';
-  $('square-inspector').textContent = `${hovered} · White: ${describe('w')}. Black: ${describe('b')}.`;
+  const square = pinnedSquare || hovered;
+  $('pin-square').hidden = !square;
+  $('pin-square').dataset.targetSquare = square || '';
+  $('pin-square').textContent = pinnedSquare ? 'Unpin '+pinnedSquare : 'Pin '+square;
+  $('pin-square').setAttribute('aria-pressed',String(!!pinnedSquare));
+  const ended = game.isGameOver();
+  const key = square ? game.fen()+'|'+square+(ended?'|ended':'') : null;
+  if (key === exchangeKey) return;
+  exchangeKey = key; exchangeResult = null; clearTimeout(exchangeTimer); exchangePending = null;
+  if (!square) { $('square-inspector').innerHTML = '<p class="exchange-empty">Hover, focus, or tap a square to compare control and captures.</p>'; return; }
+  const p = game.get(square), white = analysis.control.w.get(square)?.length || 0, black = analysis.control.b.get(square)?.length || 0, edge = white-black;
+  const label = !white && !black ? 'No attackers' : edge === 0 ? 'Equal attackers' : `${colorName(edge>0?'w':'b')} +${Math.abs(edge)} attacker${Math.abs(edge)===1?'':'s'}`;
+  $('square-inspector').innerHTML = `<div class="inspected-square"><strong>${square}</strong><span>${p ? colorName(p.color)+' '+NAMES[p.type] : 'Empty square'}</span></div><div class="square-control-counts"><span><i class="swatch white-control"></i>White <strong>${white}</strong></span><span><i class="swatch black-control"></i>Black <strong>${black}</strong></span></div><div class="square-control-edge"><span>Control edge</span><strong class="${edge>0?'white-edge':edge<0?'black-edge':''}">${label}</strong></div><div class="exchange-summary"><span class="exchange-summary-label">Exchange estimate</span><strong id="exchange-outcome">Checking captures…</strong><small id="exchange-scope">${colorName(game.turn())} to move.</small></div><button id="exchange-detail-button" class="text-button">Show details</button>`;
+  if (ended) { exchangeResult = { status:'game-over' }; renderExchangeResult(); return; }
+  if (exchangeCache.has(key)) { exchangeResult = exchangeCache.get(key); renderExchangeResult(); return; }
+  const request = { key, fen:game.fen(), square };
+  exchangeTimer = setTimeout(() => { exchangePending = request; dispatchExchange(); },80);
+}
+function rememberExchange(key,result) {
+  exchangeCache.set(key,result);
+  if (exchangeCache.size>256) exchangeCache.delete(exchangeCache.keys().next().value);
+  if (key === exchangeKey) { exchangeResult = result; renderExchangeResult(); }
+}
+function dispatchExchange() {
+  if (exchangeBusy || !exchangePending) return;
+  const request = exchangePending; exchangePending = null; exchangeActive = request; exchangeBusy = true;
+  try {
+    if (!exchangeWorker) {
+      exchangeWorker = new Worker(new URL('./exchange-worker.js',import.meta.url),{ type:'module' });
+      exchangeWorker.onmessage = ({ data }) => { exchangeBusy = false; rememberExchange(data.key,data.result); dispatchExchange(); };
+      exchangeWorker.onerror = () => {
+        exchangeWorker.terminate(); exchangeWorker = null; exchangeBusy = false;
+        rememberExchange(exchangeActive.key,{ status:'unavailable' }); dispatchExchange();
+      };
+    }
+    exchangeWorker.postMessage(request);
+  } catch {
+    exchangeBusy = false;
+    // Older browsers still get a bounded calculation without a worker.
+    try { rememberExchange(request.key,analyzeExchange(request.fen,request.square,{ maxNodes:500,timeLimitMs:40 })); }
+    catch { rememberExchange(request.key,{ status:'unavailable' }); }
+    dispatchExchange();
+  }
+}
+function exchangeDescription(result) {
+  const name = colorName(game.turn()), square = pinnedSquare || hovered;
+  const statuses = {
+    empty:['No piece to capture','Control shows pressure on this empty square.'],
+    friendly:['Friendly piece',name+' to move. Only the opponent can capture this piece.'],
+    king:['Kings cannot be captured','Control still shows attacks and defenses.'],
+    'no-capture':['No legal capture',name+' cannot capture on '+square+' now.'],
+    'game-over':['Game over','Visit an earlier position to explore captures.'],
+    limit:['Analysis incomplete','Too many capture choices to finish the estimate.'],
+    unavailable:['Estimate unavailable','Control counts are still available.']
+  };
+  if (result.status !== 'complete') return statuses[result.status] || statuses.unavailable;
+  if (result.mateWinner) return [colorName(result.mateWinner)+' delivers checkmate','In the shown capture line.'];
+  const amount = Math.abs(result.gain), unit = amount === 1 ? 'pawn' : 'pawns';
+  return [amount ? `${colorName(result.starter)} ${result.gain>0?'gains':'loses'} ${amount} ${unit}` : 'Even material exchange',`${colorName(result.starter)} starts. Captures on ${result.square} only.`];
+}
+function renderExchangeResult() {
+  if (!$('exchange-outcome') || !exchangeResult) return;
+  const [outcome,scope] = exchangeDescription(exchangeResult);
+  $('exchange-outcome').textContent = outcome; $('exchange-scope').textContent = scope;
+  if ($('exchange-dialog').open) renderExchangeDetails();
+}
+function renderExchangeDetails() {
+  const square = pinnedSquare || hovered;
+  if (!square) { $('exchange-dialog').close(); return; }
+  $('exchange-dialog-title').textContent = 'Exchange on '+square;
+  const lists = ['w','b'].map(color => {
+    const attackers = analysis.control[color].get(square) || [];
+    return `<div class="attacker-list ${color==='w'?'white-attackers':'black-attackers'}"><h3><i class="swatch ${color==='w'?'white':'black'}-control"></i>${colorName(color)} <span>${attackers.length}</span></h3>${attackers.length ? attackers.map(from=>`<span class="attacker-piece">${pieceSvg(game.get(from))}${titleCase(NAMES[game.get(from).type])} ${from}</span>`).join('') : '<p>No controlling pieces.</p>'}</div>`;
+  }).join('');
+  const [outcome,scope] = exchangeResult ? exchangeDescription(exchangeResult) : ['Checking captures…',colorName(game.turn())+' to move.'];
+  const line = exchangeResult?.line || [];
+  $('exchange-details').innerHTML = `<div class="attacker-lists">${lists}</div><div class="exchange-detail-result"><strong>${outcome}</strong><p>${scope}</p></div>${line.length ? `<h3>Capture line</h3><ol class="capture-line">${line.map(move=>`<li><strong>${colorName(move.color)} ${move.san}</strong><span>${titleCase(NAMES[move.piece])} from ${move.from} takes a ${NAMES[move.captured]}${move.promotion ? ', promotes to '+NAMES[move.promotion] : ''}.</span></li>`).join('')}</ol><p class="muted">Both sides choose their best local capture or stop recapturing when a legal move elsewhere is available.</p>` : ''}<p class="muted">Control includes pinned pieces. The capture line uses legal moves and recalculates attacks after every capture. It does not evaluate tactics elsewhere.</p><p class="muted">Material values in pawns: pawn ${PIECE_VALUES.p}, knight ${PIECE_VALUES.n}, bishop ${PIECE_VALUES.b}, rook ${PIECE_VALUES.r}, queen ${PIECE_VALUES.q}.</p>`;
 }
 function statusText() {
   if (game.isCheckmate()) return `Checkmate. ${colorName(game.turn()==='w'?'b':'w')} wins.`;
@@ -163,7 +241,7 @@ function executeMove(from,to,promotion) {
   try {
     const move = game.move({from,to,...(promotion?{promotion}:{})});
     const branched = cursor<timeline.length;
-    timeline = [...timeline.slice(0,cursor), move]; cursor = timeline.length; selected = to;
+    timeline = [...timeline.slice(0,cursor), move]; cursor = timeline.length; selected = to; hovered = to;
     render(); save();
     if (branched) toast('New continuation saved. Later moves were replaced.');
   } catch { toast('That move is not legal. Choose a marked destination.'); }
@@ -179,6 +257,7 @@ function attemptMove(from,to) {
   return true;
 }
 function selectSquare(square) {
+  clearTimeout(inspectTimer); hovered = square; renderSquareInspector();
   const p = game.get(square), previous = selected && game.get(selected);
   if (previous?.color === game.turn() && !game.isGameOver() && square!==selected && attemptMove(selected,square)) return;
   if (p) selected = selected===square ? null : square;
@@ -193,15 +272,21 @@ async function copyText(value,label) {
     const copied = document.execCommand('copy'); input.remove(); toast(copied?label+' copied.':'Copy is unavailable in this browser.');
   }
 }
-function resetGame() { game = new Chess(); startFen=initialFen; timeline=[]; cursor=0; selected=null; hovered=null; render(); save(); }
+function resetGame() { game = new Chess(); startFen=initialFen; timeline=[]; cursor=0; selected=null; hovered=null; pinnedSquare=null; render(); save(); }
 
 $('board').addEventListener('click', e => { const button=e.target.closest('[data-square]'); if(button) selectSquare(button.dataset.square); });
-$('board').addEventListener('pointerover', e => { const button=e.target.closest('[data-square]'); if(button) { hovered=button.dataset.square; renderSquareInspector(); } });
-$('board').addEventListener('pointerleave', () => { hovered=null; renderSquareInspector(); });
+$('board').addEventListener('pointermove', e => {
+  const button=e.target.closest('[data-square]');
+  if (!button || pinnedSquare || $('exchange-dialog').open || button.dataset.square===hovered) return;
+  clearTimeout(inspectTimer);
+  inspectTimer=setTimeout(() => { hovered=button.dataset.square; renderSquareInspector(); },80);
+});
+$('board').addEventListener('pointerleave', () => clearTimeout(inspectTimer));
+// Keep the last inspected square visible while the pointer enters its panel.
 $('board').addEventListener('focusin', e => {
   const button=e.target.closest('[data-square]'); if(!button) return;
   for(const b of $('board').children) b.tabIndex=b===button?0:-1;
-  hovered=button.dataset.square; renderSquareInspector();
+  clearTimeout(inspectTimer); hovered=button.dataset.square; renderSquareInspector();
 });
 $('board').addEventListener('keydown', e => {
   if(e.key==='Escape') { selected=null; render(); return; }
@@ -225,6 +310,14 @@ $('board').addEventListener('drop', e => {
 });
 $('board').addEventListener('dragend', () => { dragFrom=null; render(); });
 $('clear-selection').addEventListener('click', () => { selected=null; render(); });
+$('pin-square').addEventListener('click', () => {
+  clearTimeout(inspectTimer);
+  if (pinnedSquare) { hovered=pinnedSquare; pinnedSquare=null; } else pinnedSquare=$('pin-square').dataset.targetSquare;
+  renderBoard(); renderSquareInspector();
+});
+$('square-inspector').addEventListener('click', e => {
+  if (e.target.closest('#exchange-detail-button')) { renderExchangeDetails(); $('exchange-dialog').showModal(); }
+});
 $('overlay-options').addEventListener('click', e => { if(e.target.dataset.overlay) { overlay=e.target.dataset.overlay; render(); save(); } });
 $('intensity').addEventListener('change', e => { intensity=e.target.checked; render(); save(); });
 $('palette').addEventListener('change', e => { if (palettes.includes(e.target.value)) { palette=e.target.value; render(); save(); } });
@@ -253,7 +346,7 @@ $('import-form').addEventListener('submit', e => {
     if (/^[prnbqkPRNBQK1-8/]+\s+[wb]\s/.test(input)) candidate.load(input);
     else candidate.loadPgn(input);
     const history=candidate.history({verbose:true});
-    startFen=history.length?history[0].before:candidate.fen(); timeline=history; cursor=history.length; game=candidate; selected=null; hovered=null;
+    startFen=history.length?history[0].before:candidate.fen(); timeline=history; cursor=history.length; game=candidate; selected=null; hovered=null; pinnedSquare=null;
     $('import-dialog').close(); render(); save(); toast(history.length?'Game loaded.':'Position loaded.');
   } catch (error) { $('import-error').textContent='Could not load this input. '+error.message; }
 });
