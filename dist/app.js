@@ -6,7 +6,8 @@ const $ = id => document.getElementById(id);
 const initialFen = new Chess().fen();
 const storageKey = 'chess-space-lab-v1';
 let game = new Chess(), startFen = initialFen, timeline = [], cursor = 0;
-let flipped = false, overlay = 'both', intensity = false, selected = null, hovered = null;
+let flipped = false, overlay = 'both', intensity = false, selected = null, hovered = null, palette = 'blue-amber';
+const palettes = ['blue-amber', 'teal-rose', 'violet-green'];
 let analysis, pendingPromotion = null, dragFrom = null, toastTimeout;
 const colorName = color => color === 'w' ? 'White' : 'Black';
 const titleCase = word => word[0].toUpperCase() + word.slice(1);
@@ -16,7 +17,7 @@ function toast(message) {
   clearTimeout(toastTimeout); toastTimeout = setTimeout(() => $('toast').hidden = true, 3500);
 }
 function save() {
-  try { localStorage.setItem(storageKey, JSON.stringify({ startFen, moves:timeline.map(m=>m.san), cursor, flipped, overlay, intensity })); }
+  try { localStorage.setItem(storageKey, JSON.stringify({ startFen, moves:timeline.map(m=>m.san), cursor, flipped, overlay, intensity, palette })); }
   catch { /* The board remains usable when browser storage is unavailable. */ }
 }
 function buildTimeline(fen, moves) {
@@ -31,6 +32,7 @@ function restore() {
     const loaded = buildTimeline(data.startFen, data.moves);
     startFen = data.startFen; timeline = loaded; cursor = Math.max(0,Math.min(loaded.length,Number.isInteger(data.cursor)?data.cursor:loaded.length));
     flipped = !!data.flipped; overlay = ['both','w','b','off'].includes(data.overlay) ? data.overlay : 'both'; intensity = !!data.intensity;
+    palette = palettes.includes(data.palette) ? data.palette : 'blue-amber';
     game = new Chess(startFen);
     for (const move of timeline.slice(0,cursor)) game.move(move.san);
   } catch { game = new Chess(); startFen = initialFen; timeline = []; cursor = 0; }
@@ -67,7 +69,7 @@ function renderBoard() {
     if (p?.type === 'k' && p.color === game.turn() && game.isCheck()) classes.push('check');
     button.className = classes.join(' ');
     button.style.setProperty('--reach-color', selectedPiece?.color === 'b' ? 'var(--coral)' : 'var(--teal)');
-    if (intensity && (showW || showB)) button.style.setProperty('--strength', Math.min(.7,.15+.1*(overlay==='w'?white:overlay==='b'?black:white+black)));
+    if (intensity && (showW || showB)) button.style.setProperty('--strength', Math.min(.9,.48+.09*(overlay==='w'?white:overlay==='b'?black:Math.max(white,black))));
     else button.style.removeProperty('--strength');
     const pieceKey = p ? p.color + p.type : '';
     if (button.dataset.piece !== pieceKey) { button.innerHTML = p ? pieceSvg(p) : ''; button.dataset.piece = pieceKey; }
@@ -139,6 +141,8 @@ function renderHistory() {
   if (active) history.scrollTop = active.offsetTop - history.offsetTop - 50;
 }
 function render() {
+  document.body.dataset.palette = palette;
+  $('palette').value = palette;
   analysis = analyze(game); renderBoard(); renderAnalysis(); renderInspector(); renderHistory();
   $('game-status').textContent = statusText();
   $('position-label').textContent = cursor ? `Move ${cursor} of ${timeline.length}` : 'Starting position';
@@ -223,6 +227,7 @@ $('board').addEventListener('dragend', () => { dragFrom=null; render(); });
 $('clear-selection').addEventListener('click', () => { selected=null; render(); });
 $('overlay-options').addEventListener('click', e => { if(e.target.dataset.overlay) { overlay=e.target.dataset.overlay; render(); save(); } });
 $('intensity').addEventListener('change', e => { intensity=e.target.checked; render(); save(); });
+$('palette').addEventListener('change', e => { if (palettes.includes(e.target.value)) { palette=e.target.value; render(); save(); } });
 $('flip').addEventListener('click', () => { flipped=!flipped; createBoard(); render(); save(); });
 $('first').addEventListener('click', () => visit(0));
 $('back').addEventListener('click', () => visit(cursor-1));

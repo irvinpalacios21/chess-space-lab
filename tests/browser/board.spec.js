@@ -77,6 +77,50 @@ test('invalid import preserves position; flipped board, drag and keyboard work',
 test('small screens keep board and controls visible without horizontal overflow', async ({page}) => {
   await page.setViewportSize({width:390,height:844});
   await expect(page.locator('#board')).toBeVisible();
+  await expect(page.locator('.header-note')).not.toBeVisible();
   await move(page,'e2','e4'); await expect(sq(page,'e4')).toHaveAttribute('data-piece','wp');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
+
+test('desktop board, analysis, and long history fit the viewport', async ({page}) => {
+  await load(page,'1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d3 d6 6. O-O O-O 7. Re1 a6 8. Bb3 Ba7 9. Nbd2 h6 10. Nf1 Be6 11. Bc2 d5 12. exd5 Qxd5 13. Be3 Bxe3 14. Nxe3 Qd6 15. Qe2 Rad8 16. Rad1 Rfe8 17. Bb1 Ne7 18. d4 exd4 19. Nxd4');
+  await sq(page,'d4').click();
+  for (const size of [{width:1912,height:910},{width:1440,height:900},{width:1366,height:768},{width:1280,height:720},{width:1100,height:700}]) {
+    await page.setViewportSize(size);
+    expect(await page.evaluate(()=>({width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight}))).toEqual({width:size.width,height:size.height});
+    for (const selector of ['#board','.board-toolbar','.board-legend','.analysis-panel','.game-panel','.footer-note']) {
+      const box=await page.locator(selector).first().boundingBox();
+      expect(box.y+box.height,selector+' at '+size.width+'x'+size.height).toBeLessThanOrEqual(size.height);
+    }
+    expect(await page.locator('#move-history').evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
+  }
+  await page.locator('#move-history').evaluate(el=>el.scrollTop=0);
+  await page.getByRole('button',{name:'Go to move 1, White e4'}).click();
+  await expect(page.locator('#position-label')).toHaveText('Move 1 of 37');
+  await page.locator('#last').click();
+  await expect(page.locator('#position-label')).toHaveText('Move 37 of 37');
+  await page.screenshot({path:'artifacts/desktop-compact.png',fullPage:true});
+});
+
+test('palettes update all control indicators and persist with the game', async ({page}) => {
+  await load(page,'1. e4 e5 2. Nf3 Nc6 3. Bc4');
+  for (const palette of ['blue-amber','teal-rose','violet-green']) {
+    await page.getByLabel('Control colors').selectOption(palette);
+    const colors=await page.evaluate(()=>{
+      const color=selector=>getComputedStyle(document.querySelector(selector)).backgroundColor;
+      const overlay=selector=>getComputedStyle(document.querySelector(selector),'::before').backgroundColor;
+      return {w:color('.white-control'),b:color('.black-control'),boardW:overlay('.control-w'),boardB:overlay('.control-b'),shared:getComputedStyle(document.querySelector('.control-shared'),'::before').backgroundImage};
+    });
+    expect(colors.w).not.toBe(colors.b);
+    expect(colors.boardW).toBe(colors.w); expect(colors.boardB).toBe(colors.b);
+    expect(colors.shared).toContain(colors.w); expect(colors.shared).toContain(colors.b);
+    await page.reload();
+    await expect(page.getByLabel('Control colors')).toHaveValue(palette);
+    await expect(page.locator('#move-history button')).toHaveCount(5);
+  }
+  await page.getByLabel('Control colors').selectOption('blue-amber');
+  await page.setViewportSize({width:1912,height:910});
+  await page.screenshot({path:'artifacts/desktop-palettes.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'artifacts/mobile-palettes.png',fullPage:true});
 });

@@ -22,6 +22,8 @@ The individual-piece calculation is in `dist/control.js`. Its union is tested ag
 
 Click or tap a piece, then a legal destination. Desktop dragging and keyboard navigation are supported. Inspect either side, switch overlays, show attacker intensity, flip the board, visit earlier positions, undo, import FEN/PGN, and export PGN. Games and display settings are saved in browser local storage. Playing a move from history creates a continuation and replaces future moves.
 
+Choose Blue / amber, Teal / rose, or Violet / green under Control colors. The board, legend, statistics, and piece reach use the same palette. Striped squares indicate control by both sides. Desktop screens use three columns with a board sized to the viewport height and a separately scrolling move history. Smaller screens stack the panels.
+
 The casual board ends draws automatically on threefold repetition or the fifty-move threshold. It does not provide tournament draw-claim, clock, resignation, or online multiplayer workflows.
 
 ## Verification
